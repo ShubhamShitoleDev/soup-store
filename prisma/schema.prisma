@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ------------------------------------------------------------
+// AUTH (NextAuth.js — Credentials + Google providers)
+// ------------------------------------------------------------
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?   // null for users who signed up via Google only
+  phone         String?
+  role          Role      @default(CUSTOMER)
+  createdAt     DateTime  @default(now())
+
+  accounts  Account[]
+  sessions  Session[]
+  addresses Address[]
+  orders    Order[]
+  reviews   Review[]
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ------------------------------------------------------------
+// CATALOG
+// ------------------------------------------------------------
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?   @db.Text
+  imageUrl    String?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  products Product[]
+}
+
+model Product {
+  id                String   @id @default(cuid())
+  categoryId        String?
+  name              String
+  slug              String   @unique
+  price             Decimal  @db.Decimal(10, 2)
+  mrp               Decimal  @db.Decimal(10, 2)
+  shortDescription  String?  @db.Text
+  fullDescription   String?  @db.Text
+  ingredients       String?  @db.Text
+  nutrition         Json?
+  prepGuide         String?  @db.Text
+  stockQty          Int      @default(0)
+  isActive          Boolean  @default(true)
+  tag               String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  category    Category?      @relation(fields: [categoryId], references: [id])
+  images      ProductImage[]
+  reels       Reel[]
+  orderItems  OrderItem[]
+  reviews     Review[]
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Reel {
+  id         String   @id @default(cuid())
+  productId  String?
+  title      String
+  videoUrl   String
+  posterUrl  String?
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  product Product? @relation(fields: [productId], references: [id])
+}
+
+// ------------------------------------------------------------
+// CUSTOMER DATA
+// ------------------------------------------------------------
+model Address {
+  id            String   @id @default(cuid())
+  userId        String
+  fullName      String
+  phone         String
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  state         String
+  pincode       String
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------------
+// ORDERS
+// ------------------------------------------------------------
+model Order {
+  id          String   @id @default(cuid())
+  orderNumber String   @unique // e.g. "ENT-89241"
+  userId      String?          // null = guest checkout
+
+  customerName  String
+  customerEmail String
+  customerPhone String
+
+  shippingAddressLine1 String
+  shippingAddressLine2 String?
+  shippingCity         String
+  shippingState        String
+  shippingPincode      String
+
+  paymentMethod    PaymentMethod
+  paymentStatus    PaymentStatus @default(PENDING)
+  paymentReference String?       // Razorpay payment/order id
+
+  orderStatus     OrderStatus @default(PENDING)
+  trackingNumber  String?
+
+  subtotal    Decimal @db.Decimal(10, 2)
+  tax         Decimal @db.Decimal(10, 2) @default(0)
+  shippingFee Decimal @db.Decimal(10, 2) @default(0)
+  total       Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User?       @relation(fields: [userId], references: [id])
+  items OrderItem[]
+
+  @@index([userId])
+  @@index([orderStatus])
+  @@index([createdAt])
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  NETBANKING
+  COD
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String?
+  productName String  // snapshot — never changes even if product is edited later
+  unitPrice   Decimal @db.Decimal(10, 2)
+  qty         Int
+  lineTotal   Decimal @db.Decimal(10, 2)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// ------------------------------------------------------------
+// REVIEWS
+// ------------------------------------------------------------
+model Review {
+  id           String   @id @default(cuid())
+  productId    String
+  userId       String?
+  customerName String
+  rating       Int      // 1-5
+  reviewText   String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+}
